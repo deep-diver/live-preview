@@ -252,10 +252,150 @@ document.addEventListener('DOMContentLoaded', () => {
     updateLivePreview();
 });
 
-// === INTERACTION SCRIPT TO INJECT ===
 function getInteractionScript() {
-    return `(${(function () {
-        // interaction script code is too long to inline here
-        // this will be inserted in full
-    }).toString()})();`;
+  return `
+(function() {
+  if (window.frameElement && window.parent) {
+    console.log('[Interaction Script] Initializing inside iframe.');
+    let lastHoveredElement = null;
+    let originalOutline = '';
+    let rightClickedElement = null;
+    const highlightStyle = '2px dashed #007bff';
+    const contextMenuId = 'refine-context-menu';
+
+    function removeContextMenu() {
+      const existingMenu = document.getElementById(contextMenuId);
+      if (existingMenu) {
+        console.log('[Interaction Script] Removing context menu.');
+        existingMenu.remove();
+      }
+      rightClickedElement = null;
+    }
+
+    document.body.addEventListener('mouseover', function(event) {
+      if (!event.target || event.target === document.body || event.target === document.documentElement || event.target.id === contextMenuId || event.target.closest('#' + contextMenuId)) {
+        return;
+      }
+      if (event.target !== lastHoveredElement) {
+        if (lastHoveredElement) {
+          try { lastHoveredElement.style.outline = originalOutline; } catch(e) {}
+        }
+        lastHoveredElement = event.target;
+        try { originalOutline = lastHoveredElement.style.outline || ''; } catch(e) { originalOutline = ''; }
+        try { lastHoveredElement.style.outline = highlightStyle; } catch(e) {}
+      }
+    }, false);
+
+    document.body.addEventListener('mouseout', function(event) {
+      if (event.target === lastHoveredElement) {
+        try { lastHoveredElement.style.outline = originalOutline; } catch(e) {}
+        lastHoveredElement = null;
+        originalOutline = '';
+      }
+    }, false);
+
+    document.body.addEventListener('contextmenu', function(event) {
+      if (!event.target || event.target === document.body || event.target === document.documentElement || event.target.id === contextMenuId || event.target.closest('#' + contextMenuId)) {
+        return;
+      }
+      console.log('[Interaction Script] Context menu triggered on:', event.target.tagName);
+      event.preventDefault();
+      removeContextMenu();
+      rightClickedElement = event.target;
+
+      const menu = document.createElement('div');
+      menu.id = contextMenuId;
+      menu.style.position = 'absolute';
+      menu.style.left = \`\${event.pageX + 2}px\`;
+      menu.style.top = \`\${event.pageY + 2}px\`;
+      menu.style.backgroundColor = 'white';
+      menu.style.border = '1px solid #ccc';
+      menu.style.boxShadow = '2px 2px 5px rgba(0,0,0,0.2)';
+      menu.style.padding = '10px';
+      menu.style.zIndex = '10000';
+      menu.style.borderRadius = '4px';
+      menu.style.fontSize = '14px';
+      menu.style.fontFamily = 'sans-serif';
+      menu.style.color = '#333';
+      menu.style.minWidth = '220px';
+
+      const textarea = document.createElement('textarea');
+      textarea.rows = 3;
+      textarea.placeholder = 'Describe refinement... (e.g., make text blue, add padding)';
+      textarea.style.width = '100%';
+      textarea.style.boxSizing = 'border-box';
+      textarea.style.display = 'block';
+      textarea.style.marginBottom = '8px';
+      textarea.style.border = '1px solid #ccc';
+      textarea.style.padding = '5px';
+      textarea.style.borderRadius = '3px';
+      textarea.style.fontSize = '13px';
+
+      const button = document.createElement('button');
+      button.textContent = 'Refine';
+      button.style.padding = '5px 10px';
+      button.style.border = 'none';
+      button.style.backgroundColor = '#007bff';
+      button.style.color = 'white';
+      button.style.borderRadius = '3px';
+      button.style.cursor = 'pointer';
+      button.style.fontSize = '13px';
+      button.style.width = '100%';
+
+      button.onclick = function() {
+        if (rightClickedElement) {
+          const instructions = textarea.value.trim();
+          if (!instructions) {
+            alert('Please enter refinement instructions.');
+            textarea.focus();
+            return;
+          }
+          let elementHTML = '';
+          try { elementHTML = rightClickedElement.outerHTML; } catch(e) {}
+
+          console.log('[Interaction Script] Sending refine request:', { instructions, elementHTML });
+          window.parent.postMessage({
+            type: 'refineRequest',
+            payload: {
+              instructions: instructions,
+              elementHTML: elementHTML
+            }
+          }, '*');
+          removeContextMenu();
+        } else {
+          console.warn('[Interaction Script] Refine clicked but rightClickedElement is null.');
+        }
+      };
+
+      menu.appendChild(textarea);
+      menu.appendChild(button);
+      document.body.appendChild(menu);
+      textarea.focus();
+    });
+
+    document.addEventListener('click', function(event) {
+      const menu = document.getElementById(contextMenuId);
+      if (menu && !menu.contains(event.target)) {
+        console.log('[Interaction Script] Closing context menu due to outside click.');
+        removeContextMenu();
+      }
+    }, true);
+
+    window.addEventListener('blur', function() {
+      console.log('[Interaction Script] Iframe lost focus, removing context menu.');
+      removeContextMenu();
+      if (lastHoveredElement) {
+        try { lastHoveredElement.style.outline = originalOutline; } catch(e) {}
+        lastHoveredElement = null;
+        originalOutline = '';
+      }
+    });
+
+    console.log('[Interaction Script] Event listeners added.');
+  } else {
+    console.log('[Interaction Script] Not running inside an iframe or parent access denied.');
+  }
+})();
+`.trim();
 }
+
