@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenAI-Compatible Code Generator & Preview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://rsms.me/">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <style>
+        /* Use Inter font */
+        html { font-family: 'Inter', sans-serif; }
+        @supports (font-variation-settings: normal) {
+          html { font-family: 'Inter var', sans-serif; }
+        }
+
+        /* Sidebar transition */
+        #sidebar {
+            /* Added transform and opacity for smoother hide/show */
+            transition: width 0.3s ease-in-out, transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+        /* Main content transition */
+        #main-content {
+            transition: width 0.3s ease-in-out;
+        }
+
+        /* Hide scrollbar for cleaner look, but keep functionality */
+        #code-output::-webkit-scrollbar { display: none; }
+        #code-output { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Adjusted height for code output */
+        #code-output {
+            font-family: monospace;
+            background-color: #1f2937; /* gray-800 */
+            color: #f3f4f6; /* gray-100 */
+            border-radius: 0.375rem; /* rounded-md */
+            padding: 1rem;
+            overflow: auto; /* Enable scrolling */
+            min-height: 150px; /* Minimum height */
+            /* Adjust max-height based on viewport and other elements */
+            max-height: calc(100vh - 450px); /* Adjusted slightly for model dropdown */
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* Adjusted height for iframe */
+        #preview-frame {
+            width: 100%;
+            /* Adjust height based on viewport minus padding/header */
+            height: calc(100vh - 100px); /* Adjusted for simpler top bar */
+            border: 1px solid #d1d5db; /* gray-300 */
+            border-radius: 0.375rem; /* rounded-md */
+            background-color: white;
+        }
+
+        /* Loading indicator */
+        #loading-indicator { display: none; }
+
+        /* Refinement loading indicator */
+        #refinement-loading-indicator {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.7); color: white; padding: 1rem 1.5rem;
+            border-radius: 0.5rem; z-index: 1000; display: none; align-items: center; gap: 0.75rem;
+        }
+
+        /* Slider value display */
+        #interval-value { font-weight: 500; color: #3b82f6; /* blue-500 */ }
+
+        /* Styling for the toggle button */
+        #sidebar-toggle {
+            position: fixed; /* Keep it visible */
+            top: 1rem;
+            left: 1rem;
+            z-index: 50; /* Ensure it's above other content */
+            background-color: white;
+            border-radius: 9999px; /* Make it circular */
+            padding: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            cursor: pointer;
+            border: 1px solid #e5e7eb; /* gray-200 */
+        }
+        #sidebar-toggle:hover {
+            background-color: #f3f4f6; /* gray-100 */
+        }
+        #sidebar-toggle svg {
+            width: 1.25rem; /* w-5 */
+            height: 1.25rem; /* h-5 */
+            color: #4b5563; /* gray-600 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <button id="sidebar-toggle" aria-label="Toggle Sidebar" aria-controls="sidebar" aria-expanded="true">
+        <svg id="toggle-icon-close" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-panel-left-close">
+            <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/>
+        </svg>
+        <svg id="toggle-icon-open" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-panel-left-open hidden">
+            <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 15 3-3-3-3"/>
+        </svg>
+    </button>
+
+    <div class="flex flex-row min-h-screen">
+
+        <div id="sidebar" class="w-full md:w-1/2 lg:w-1/3 xl:w-1/4 h-screen overflow-y-auto bg-white p-6 shadow-lg flex flex-col space-y-4 relative">
+            <h1 class="text-xl font-bold text-center text-gray-800 mt-8">Code Generator</h1>
+            <div>
+                <label for="api-key" class="block text-sm font-medium text-gray-700 mb-1">Novita.AI API Key:</label>
+                <input type="password" id="api-key" name="api-key" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Enter your API Key">
+            </div>
+
+            <div>
+                <label for="model-selector" class="block text-sm font-medium text-gray-700 mb-1">Select Model:</label>
+                <select id="model-selector" name="model-selector" class="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    <option value="deepseek/deepseek-v3-turbo" selected>deepseek/deepseek-v3-turbo</option>
+                    <option value="deepseek/deepseek-r1-turbo">deepseek/deepseek-r1-turbo</option>
+                    <option value="qwen/qwen3-235b-a22b-fp8">qwen/qwen3-235b-a22b-fp8</option>
+                    <option value="qwen/qwen3-30b-a3b-fp8">qwen/qwen3-30b-a3b-fp8</option>
+                    <option value="qwen/qwen3-32b-fp8">qwen/qwen3-32b-fp8</option>
+                    <option value="google/gemma-3-27b-it">google/gemma-3-27b-it</option>
+                    <option value="mistralai/mistral-nemo">mistralai/mistral-nemo</option>
+                    <option value="meta-llama/llama-4-maverick-17b-128e-instruct-fp8">meta-llama/llama-4-maverick-17b-128e-instruct-fp8</option>
+                    <option value="meta-llama/llama-4-scout-17b-16e-instruct">meta-llama/llama-4-scout-17b-16e-instruct</option>
+                </select>
+            </div>
+            <div>
+                <label for="user-prompt" class="block text-sm font-medium text-gray-700 mb-1">Describe the web page/app to build:</label>
+                <textarea id="user-prompt" name="user-prompt" rows="4" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="e.g., 'Create a simple button that changes color when clicked'"></textarea>
+            </div>
+
+            <div class="pt-2">
+                <label for="preview-interval-slider" class="block text-sm font-medium text-gray-700 mb-1">
+                    Live Preview Update Interval: <span id="interval-value">500</span>ms
+                </label>
+                <input type="range" id="preview-interval-slider" name="preview-interval-slider"
+                       min="100" max="2000" step="100" value="500"
+                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+                <p class="mt-1 text-xs text-gray-500">Min time between preview updates (higher = less frequent).</p>
+            </div>
+
+            <button id="generate-button" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50">
+                Generate Code
+                <svg id="loading-indicator" class="animate-spin -mr-1 ml-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+
+            <div class="mt-4 flex-grow flex flex-col min-h-0">
+                <h3 class="text-lg font-medium text-gray-900 mb-2 flex-shrink-0">Generated Code:</h3>
+                <div class="flex-grow overflow-hidden min-h-0">
+                    <pre id="code-output" class="h-full"><code></code></pre>
+                </div>
+            </div>
+            <div id="error-message" class="mt-2 text-red-600 text-sm font-medium flex-shrink-0"></div>
+        </div>
+
+        <div id="main-content" class="w-full md:w-1/2 lg:w-2/3 xl:w-3/4 h-screen overflow-y-auto p-6 flex flex-col space-y-4">
+             <h1 class="text-xl font-bold text-center text-gray-800 mt-8">Live Preview</h1>
+            <p class="text-sm text-gray-600 flex-shrink-0 text-center">Hover over elements to highlight, right-click to refine.</p>
+            <div class="flex-grow min-h-0">
+                <iframe id="preview-frame" title="Live Preview of Generated Code" class="w-full h-full" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+            </div>
+            <p class="mt-2 text-xs text-gray-500 flex-shrink-0 text-center">Note: Some JS/external resources might be restricted by the sandbox.</p>
+        </div>
+
+    </div>
+
+    <div id="refinement-loading-indicator">
+        <span>Refining code...</span>
+        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+    </div>
+
+    <script>
+        // --- Global Variables ---
+        let generatedCode = '';
+        let currentCleanedCode = '';
+        let originalUserPrompt = '';
+        let previewUpdateInterval = 500;
+        let lastPreviewUpdateTime = 0;
+        let isSidebarVisible = true; // Track sidebar state
+        let conversationHistory = []; // Store messages for context
+
+        // --- DOM Element References ---
+        let apiKeyInput, userPromptInput, codeOutputElement, generateButton, loadingIndicator, errorMessageElement;
+        let previewFrame;
+        let refinementLoadingIndicator;
+        let intervalSlider, intervalValueDisplay;
+        let sidebar, mainContent, sidebarToggle, toggleIconOpen, toggleIconClose;
+        let modelSelector; // *** ADDED: Reference for model selector ***
+
+        // --- Main Function to Generate or Refine Code ---
+        async function generateOrRefineCode(refinementData = null) {
+            console.log("generateOrRefineCode called. isRefinement:", !!refinementData);
+
+            const apiKey = apiKeyInput.value.trim();
+            const isRefinement = refinementData !== null;
+            const currentPrompt = userPromptInput.value.trim();
+            const selectedModel = modelSelector.value; // *** ADDED: Get selected model ***
+
+            // Validation
+            console.log("Checking API Key:", apiKey ? "Present" : "MISSING");
+            if (!apiKey) {
+                errorMessageElement.textContent = 'Error: API Key is required.';
+                console.log("Exiting: API Key missing.");
+                return;
+            }
+             console.log("Selected Model:", selectedModel); // Log selected model
+            if (!selectedModel) {
+                 errorMessageElement.textContent = 'Error: Please select a model.';
+                 console.log("Exiting: Model not selected.");
+                 return;
+            }
+            console.log("Checking Prompt:", currentPrompt ? "Present" : "MISSING", "isRefinement:", isRefinement);
+            if (!isRefinement && !currentPrompt) {
+                errorMessageElement.textContent = 'Error: Please enter a description.';
+                console.log("Exiting: Initial generation requires a prompt.");
+                return;
+            }
+
+
+            errorMessageElement.textContent = '';
+            console.log("Input validated. Proceeding...");
+
+            // UI Updates: Start Loading
+            if (isRefinement) {
+                refinementLoadingIndicator.style.display = 'flex';
+                codeOutputElement.textContent = ''; // Clear code output for refinement
+            } else {
+                generateButton.disabled = true;
+                loadingIndicator.style.display = 'inline-block';
+                originalUserPrompt = currentPrompt; // Store the initial prompt
+                lastPreviewUpdateTime = 0;
+                conversationHistory = []; // Reset history for new generation
+                codeOutputElement.textContent = ''; // Clear code output for new generation
+            }
+
+            // --- Construct Messages for OpenAI API ---
+            const systemPrompt = `You are an expert web developer specializing in clean, modern HTML, CSS (using Tailwind CSS classes where possible), and JavaScript.
+Generate the complete, runnable HTML code (including <!DOCTYPE html>, <html>, <head>, <style>, <body>, and <script> tags if necessary) for the user's request.
+Ensure the code is self-contained and doesn't rely on external files unless specifically requested or essential (like Tailwind via CDN: <script src="https://cdn.tailwindcss.com"><\/script>).
+Include necessary CSS within <style> tags and JavaScript within <script> tags inside the HTML structure.
+Use Tailwind CSS classes for styling elements. Assume Tailwind is available.
+Use the Inter font (<link rel="stylesheet" href="https://rsms.me/inter/inter.css">).
+Add comments to explain the code.
+Output ONLY the raw, complete HTML code. Do NOT include any explanations, introductions, or markdown formatting like \`\`\`html ... \`\`\` or \`\`\` ... \`\`\`.`;
+
+            let userMessageContent = '';
+
+            if (isRefinement) {
+                userMessageContent = `Original User Request: "${originalUserPrompt}"
+Current Full HTML Code: \`\`\`html\n${currentCleanedCode}\n\`\`\`
+Selected HTML Element to Refine: \`\`\`html\n${refinementData.elementHTML}\n\`\`\`
+User's Refinement Instructions: "${refinementData.instructions}"
+
+Instructions: Modify ONLY the necessary parts of the Current Full HTML Code to implement the refinement. Ensure the refined code remains a single, complete, runnable HTML document. Maintain Tailwind CSS. Output ONLY the raw, complete, refined HTML code.`;
+                // Add refinement instructions as a new user message to the existing history
+                 conversationHistory.push({ role: "user", content: userMessageContent });
+            } else {
+                userMessageContent = `User Request: "${originalUserPrompt}"`;
+                 // Start history with system and user prompt for new generation
+                 conversationHistory = [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userMessageContent }
+                 ];
+            }
+
+
+            console.log("Messages for API:", JSON.stringify(conversationHistory, null, 2));
+
+            // *** Define OpenAI-Compatible API Endpoint ***
+            const API_BASE_URL = "https://api.novita.ai/v3/openai"; // Replace if using a different provider
+            const API_ENDPOINT = `${API_BASE_URL}/chat/completions`;
+            // const MODEL_NAME = "deepseek/deepseek-v3-turbo"; // *** REMOVED: Now using selectedModel ***
+
+            let rawGeneratedCode = ''; // Accumulates the response from the current API call
+
+            try {
+                console.log("Attempting to fetch from API:", API_ENDPOINT);
+                // API Request using fetch
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}` // Use Bearer token authentication
+                    },
+                    body: JSON.stringify({
+                        model: selectedModel, // *** UPDATED: Use selected model ***
+                        messages: conversationHistory, // Send the constructed message history
+                        stream: true, // Request a streamed response
+                        separate_reasoning: true
+                        // response_format: { type: "text" } // Optional, usually default for text models
+                    })
+                });
+                console.log("Fetch response received. Status:", response.status);
+
+                // Handle API Errors
+                if (!response.ok) {
+                    let errorDetails = `API Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorData = await response.json();
+                        errorDetails += ` - ${errorData?.error?.message || errorData?.detail || 'No specific message.'}`;
+                    } catch (e) { /* Ignore JSON parsing error if body is empty or not JSON */ }
+                     // Check for common errors
+                    if (response.status === 401) {
+                        errorDetails = 'API Error: 401 Unauthorized. Check your API Key.';
+                    } else if (response.status === 429) {
+                         errorDetails = 'API Error: 429 Rate Limit Exceeded. Please wait and try again.';
+                    } else if (response.status === 404 && errorDetails.includes('model_not_found')) {
+                        errorDetails = `API Error: Model "${selectedModel}" not found or not supported by the endpoint.`;
+                    }
+                    throw new Error(errorDetails);
+                }
+
+                // --- Process Streamed Response (Server-Sent Events) ---
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let currentChunkContent = ''; // Store content from the current stream
+                let streamEndedByMarker = false; // Flag for [DONE] marker
+
+                console.log("Starting to process stream...");
+
+                while (!streamEndedByMarker) { // Loop until explicitly stopped by marker or reader.read()
+                    let done, value; // Use let instead of const
+                    try {
+                        ({ done, value } = await reader.read()); // Assign using let variables
+                    } catch (readError) {
+                         console.error("Error reading stream:", readError);
+                         errorMessageElement.textContent = 'Error reading response stream.';
+                         break; // Exit loop on read error
+                    }
+
+
+                    if (done) {
+                         console.log("Stream finished (reader reported done).");
+                         break; // Exit loop if reader says stream is done
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    // Process SSE chunks (data: {...})
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataContent = line.substring(5).trim();
+                            if (dataContent === '[DONE]') {
+                                console.log("Received [DONE] marker.");
+                                streamEndedByMarker = true; // Set the flag instead of assigning to 'done'
+                                break; // Exit the inner 'for' loop
+                            }
+                            try {
+                                const jsonData = JSON.parse(dataContent);
+                                // Extract content from the delta
+                                const textPart = jsonData.choices?.[0]?.delta?.content;
+
+                                if (textPart) {
+                                    rawGeneratedCode += textPart; // Accumulate the raw response for this call
+
+                                    // Update Code Output Display (Cleaned slightly for display)
+                                    let displayCode = rawGeneratedCode; // Show the entire accumulated response
+                                    displayCode = displayCode.replace(/^```(?:html|javascript|css)?\s*?\n/i, '').replace(/\n```\s*?$/, '').trim();
+                                    codeOutputElement.textContent = displayCode;
+
+                                    // Auto-scroll code output
+                                    codeOutputElement.parentElement.scrollTop = codeOutputElement.parentElement.scrollHeight;
+
+                                    // Throttle Live Preview Update
+                                    const now = Date.now();
+                                    if (now - lastPreviewUpdateTime >= previewUpdateInterval) {
+                                        // Update preview with potentially incomplete but streaming code
+                                        updateLivePreview(displayCode); // Use the currently displayed code
+                                        lastPreviewUpdateTime = now;
+                                    }
+
+                                } else if (jsonData.choices?.[0]?.finish_reason) {
+                                     console.log("Stream finished with reason:", jsonData.choices[0].finish_reason);
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse JSON chunk or invalid data format:", dataContent, e);
+                            }
+                        }
+                    }
+                } // End while loop
+
+                 // Add the assistant's response (the complete code generated in this call) to the history
+                 if (rawGeneratedCode) {
+                    conversationHistory.push({ role: "assistant", content: rawGeneratedCode });
+                 }
+
+                // Clean Final Code (Remove markdown fences if they slipped through)
+                let cleanedCode = rawGeneratedCode.replace(/^```(?:html|javascript|css)?\s*?\n/i, '').replace(/\n```\s*?$/, '').trim();
+
+                // If the model didn't output a full HTML structure, wrap it
+                 if (!cleanedCode.toLowerCase().includes('<!doctype html>') && cleanedCode.length > 0) {
+                     console.warn("Output doesn't seem to be a full HTML doc, wrapping it.");
+                     cleanedCode = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generated Content</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <style> html { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="p-4">
+${cleanedCode}
+</body>
+</html>`;
+                 }
+
+
+                currentCleanedCode = cleanedCode; // Store the *new* cleaned code for the next potential refinement
+
+                // --- Inject Interaction Script ---
+                const interactionScript = `
+<script>
+(function() {
+    // Ensure this runs only inside the preview iframe
+    if (window.frameElement && window.parent) { // Check for parent access too
+        console.log('[Interaction Script] Initializing inside iframe.');
+        let lastHoveredElement = null;
+        let originalOutline = '';
+        let rightClickedElement = null;
+        const highlightStyle = '2px dashed #007bff'; // Style for hover highlight
+        const contextMenuId = 'refine-context-menu'; // ID for the custom menu
+
+        // --- Function to remove any existing context menu ---
+        function removeContextMenu() {
+            const existingMenu = document.getElementById(contextMenuId);
+            if (existingMenu) {
+                console.log('[Interaction Script] Removing context menu.');
+                existingMenu.remove();
+            }
+            rightClickedElement = null; // Clear the tracked element when menu is removed
+        }
+
+        // --- Hover Highlighting Logic ---
+        document.body.addEventListener('mouseover', function(event) {
+            // Ignore hovering over body, html, or the context menu itself
+            if (!event.target || event.target === document.body || event.target === document.documentElement || event.target.id === contextMenuId || event.target.closest('#' + contextMenuId)) {
+                return;
+            }
+            // Apply highlight if hovering over a new element
+            if (event.target !== lastHoveredElement) {
+                // Remove highlight from the previous element
+                if (lastHoveredElement) {
+                    try { lastHoveredElement.style.outline = originalOutline; } catch(e) {/* Ignore potential errors on detached elements */}
+                }
+                // Store the new element and its original outline style
+                lastHoveredElement = event.target;
+                try { originalOutline = lastHoveredElement.style.outline || ''; } catch(e) { originalOutline = ''; } // Get current outline or empty string
+                // Apply the new highlight
+                try { lastHoveredElement.style.outline = highlightStyle; } catch(e) {/* Ignore */}
+            }
+        }, false);
+
+        // Remove highlight when mouse leaves the element
+        document.body.addEventListener('mouseout', function(event) {
+            if (event.target === lastHoveredElement) {
+                try { lastHoveredElement.style.outline = originalOutline; } catch(e) {/* Ignore */}
+                lastHoveredElement = null;
+                originalOutline = '';
+            }
+        }, false);
+
+        // --- Right-click / Context Menu Logic ---
+        document.body.addEventListener('contextmenu', function(event) {
+             if (!event.target || event.target === document.body || event.target === document.documentElement || event.target.id === contextMenuId || event.target.closest('#' + contextMenuId)) {
+                return;
+            }
+            console.log('[Interaction Script] Context menu triggered on:', event.target.tagName);
+            event.preventDefault(); // IMPORTANT: Prevent default browser right-click menu
+            removeContextMenu(); // Remove any previously opened menu
+
+            rightClickedElement = event.target; // Store the element that was right-clicked
+
+            // --- Create context menu elements ---
+            const menu = document.createElement('div');
+            menu.id = contextMenuId;
+            // Basic Styling for the menu
+            menu.style.position = 'absolute';
+            menu.style.left = \`\${event.pageX + 2}px\`; // Position near cursor
+            menu.style.top = \`\${event.pageY + 2}px\`;
+            menu.style.backgroundColor = 'white';
+            menu.style.border = '1px solid #ccc';
+            menu.style.boxShadow = '2px 2px 5px rgba(0,0,0,0.2)';
+            menu.style.padding = '10px';
+            menu.style.zIndex = '10000'; // Ensure it's on top
+            menu.style.borderRadius = '4px';
+            menu.style.fontSize = '14px';
+            menu.style.fontFamily = 'sans-serif';
+            menu.style.color = '#333';
+            menu.style.minWidth = '220px'; // Give it some width
+
+            const textarea = document.createElement('textarea');
+            textarea.rows = 3;
+            textarea.placeholder = 'Describe refinement... (e.g., make text blue, add padding)';
+            // Basic Styling
+            textarea.style.width = '100%'; // Use full width of menu
+            textarea.style.boxSizing = 'border-box'; // Include padding/border in width
+            textarea.style.display = 'block';
+            textarea.style.marginBottom = '8px';
+            textarea.style.border = '1px solid #ccc';
+            textarea.style.padding = '5px';
+            textarea.style.borderRadius = '3px';
+            textarea.style.fontSize = '13px'; // Slightly smaller font
+
+            const button = document.createElement('button');
+            button.textContent = 'Refine';
+             // Basic Styling
+             button.style.padding = '5px 10px';
+             button.style.border = 'none';
+             button.style.backgroundColor = '#007bff';
+             button.style.color = 'white';
+             button.style.borderRadius = '3px';
+             button.style.cursor = 'pointer';
+             button.style.fontSize = '13px';
+             button.style.width = '100%'; // Make button full width
+
+            // --- Refine Button Click Handler ---
+            button.onclick = function() {
+                if (rightClickedElement) {
+                    const instructions = textarea.value.trim();
+                    if (!instructions) {
+                        alert('Please enter refinement instructions.'); // Use alert here as it's simple feedback
+                        textarea.focus();
+                        return;
+                    }
+                    let elementHTML = '';
+                    try { elementHTML = rightClickedElement.outerHTML; } catch(e) { console.warn("Could not get outerHTML of right-clicked element"); }
+
+                    console.log('[Interaction Script] Sending refine request:', { instructions, elementHTML });
+                    // Send data to the parent window
+                    window.parent.postMessage({
+                        type: 'refineRequest',
+                        payload: {
+                            instructions: instructions,
+                            elementHTML: elementHTML // Send the HTML as context
+                        }
+                    }, '*'); // Use a specific target origin in production for security
+                    removeContextMenu(); // Close menu after sending
+                } else {
+                    console.warn('[Interaction Script] Refine clicked but rightClickedElement is null.');
+                }
+            };
+
+            // Append elements and add to body
+            menu.appendChild(textarea);
+            menu.appendChild(button);
+            document.body.appendChild(menu);
+            textarea.focus(); // Focus the textarea for immediate input
+        });
+
+        // --- Close context menu on click outside ---
+        document.addEventListener('click', function(event) {
+            const menu = document.getElementById(contextMenuId);
+            if (menu && !menu.contains(event.target)) {
+                 console.log('[Interaction Script] Closing context menu due to outside click.');
+                removeContextMenu();
+            }
+        }, true); // Use capture phase
+
+         // --- Close context menu if iframe loses focus ---
+         window.addEventListener('blur', function() {
+              console.log('[Interaction Script] Iframe lost focus, removing context menu.');
+              removeContextMenu();
+              if (lastHoveredElement) {
+                  try { lastHoveredElement.style.outline = originalOutline; } catch(e) {/* Ignore */}
+                  lastHoveredElement = null;
+                  originalOutline = '';
+              }
+         });
+
+        console.log('[Interaction Script] Event listeners added.');
+    } else {
+        console.log('[Interaction Script] Not running inside an iframe or parent access denied.');
+    }
+})();
+<\/script>
+`; // End of interactionScript
+
+                // Insert script before closing </body> tag if possible, otherwise append
+                const bodyEndIndex = currentCleanedCode.lastIndexOf('</body>');
+                if (bodyEndIndex !== -1) {
+                    generatedCode = currentCleanedCode.slice(0, bodyEndIndex) + interactionScript + currentCleanedCode.slice(bodyEndIndex);
+                } else {
+                    generatedCode = currentCleanedCode + interactionScript;
+                }
+                console.log("Interaction script injected into the new code.");
+
+
+                // Update Final Display & Preview
+                codeOutputElement.textContent = currentCleanedCode; // Display the final, new cleaned code
+                updateLivePreview(); // Update preview with the final code *including* the interaction script
+                console.log("Final display and preview updated with refined code.");
+
+
+            } catch (error) {
+                // Enhanced Error Message
+                console.error("Error during generateOrRefineCode:", error);
+                let displayError = `Error: ${error.message}`;
+                 if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+                     displayError = `Network Error: Failed to fetch. Check connection, API endpoint, API key, and console (CORS?).`;
+                 }
+                // Display error in the UI
+                errorMessageElement.textContent = displayError;
+                // Show previous code if refinement failed
+                codeOutputElement.textContent = conversationHistory.length > 2 ? conversationHistory[conversationHistory.length - 3].content : '// An error occurred during refinement.'; // Show assistant's previous response if available
+                updateLivePreview(`<div class="p-4 text-red-600 font-medium">Error generating code: ${displayError}</div>`);
+
+            } finally {
+                // UI Updates: End Loading
+                if (isRefinement) {
+                    refinementLoadingIndicator.style.display = 'none';
+                } else {
+                    generateButton.disabled = false;
+                    loadingIndicator.style.display = 'none';
+                }
+                console.log("Loading indicators hidden, button state reset.");
+            }
+        } // --- End of generateOrRefineCode function ---
+
+
+        // --- Update Live Preview Logic ---
+        function updateLivePreview(codeToRender = null) {
+            const finalCode = codeToRender !== null ? codeToRender : generatedCode;
+            if (finalCode || codeToRender === '') { // Allow empty string to clear preview
+                try {
+                    let previewContent = finalCode;
+                    if (codeToRender !== null && !previewContent.toLowerCase().includes('<!doctype html>')) {
+                         const seemsComplete = previewContent.toLowerCase().includes('<html') && previewContent.toLowerCase().includes('</body');
+                         if (!seemsComplete) {
+                            console.log("Wrapping potentially incomplete stream content for preview.");
+                            previewContent = `<!DOCTYPE html><html><head><script src="https://cdn.tailwindcss.com"><\/script><link rel="stylesheet" href="https://rsms.me/inter/inter.css"><style>html{font-family:'Inter',sans-serif;}</style></head><body>${previewContent}</body></html>`;
+                         }
+                    }
+                    previewFrame.srcdoc = previewContent;
+                 } catch (e) {
+                    console.error("Error setting preview srcdoc:", e);
+                    previewFrame.srcdoc = `<p class="p-4 text-red-500">Error rendering preview.</p>`;
+                 }
+            } else if (codeToRender === null && !generatedCode) {
+                 previewFrame.srcdoc = '<div class="flex items-center justify-center h-full"><p class="text-gray-500">Generate code to see the preview.</p></div>';
+            }
+        }
+
+        // --- Handle Messages from Iframe (for Refinement) ---
+        function receiveMessageFromIframe(event) {
+             const data = event.data;
+             if (data && data.type === 'refineRequest' && data.payload) {
+                 console.log("Refinement request received from iframe:", data.payload);
+                 if(data.payload.instructions && typeof data.payload.elementHTML !== 'undefined') {
+                     generateOrRefineCode(data.payload); // Trigger refinement
+                 } else {
+                     console.warn("Refinement request missing instructions or elementHTML:", data.payload);
+                     errorMessageElement.textContent = "Refinement error: Invalid data received from preview.";
+                 }
+             }
+        }
+
+        // --- Sidebar Toggle Logic ---
+        function toggleSidebar() {
+            isSidebarVisible = !isSidebarVisible;
+            console.log("Toggling sidebar. Visible:", isSidebarVisible);
+
+            const sidebarWidthClasses = ['w-full', 'md:w-1/2', 'lg:w-1/3', 'xl:w-1/4'];
+            const mainContentResponsiveWidthClasses = ['md:w-1/2', 'lg:w-2/3', 'xl:w-3/4'];
+
+            if (isSidebarVisible) {
+                sidebar.classList.remove('hidden'); // Show sidebar
+                sidebar.classList.add(...sidebarWidthClasses);
+                mainContent.classList.remove('w-full'); // Make main content take remaining space
+                mainContent.classList.add('w-full', ...mainContentResponsiveWidthClasses);
+                toggleIconOpen.classList.add('hidden');
+                toggleIconClose.classList.remove('hidden');
+                sidebarToggle.setAttribute('aria-expanded', 'true');
+                sidebarToggle.setAttribute('aria-label', 'Hide Sidebar');
+            } else {
+                sidebar.classList.add('hidden'); // Hide sidebar
+                sidebar.classList.remove(...sidebarWidthClasses);
+                mainContent.classList.remove('w-full', ...mainContentResponsiveWidthClasses); // Make main content full width
+                mainContent.classList.add('w-full');
+                toggleIconOpen.classList.remove('hidden');
+                toggleIconClose.classList.add('hidden');
+                sidebarToggle.setAttribute('aria-expanded', 'false');
+                sidebarToggle.setAttribute('aria-label', 'Show Sidebar');
+            }
+        }
+
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM fully loaded and parsed.");
+            // Get DOM element references
+            apiKeyInput = document.getElementById('api-key');
+            userPromptInput = document.getElementById('user-prompt');
+            codeOutputElement = document.getElementById('code-output').querySelector('code');
+            generateButton = document.getElementById('generate-button');
+            loadingIndicator = document.getElementById('loading-indicator');
+            errorMessageElement = document.getElementById('error-message');
+            previewFrame = document.getElementById('preview-frame');
+            refinementLoadingIndicator = document.getElementById('refinement-loading-indicator');
+            intervalSlider = document.getElementById('preview-interval-slider');
+            intervalValueDisplay = document.getElementById('interval-value');
+            sidebar = document.getElementById('sidebar');
+            mainContent = document.getElementById('main-content');
+            sidebarToggle = document.getElementById('sidebar-toggle');
+            toggleIconOpen = document.getElementById('toggle-icon-open');
+            toggleIconClose = document.getElementById('toggle-icon-close');
+            modelSelector = document.getElementById('model-selector'); // *** ADDED: Get model selector reference ***
+
+
+            // Check if critical elements were found
+            // *** UPDATED: Check for modelSelector ***
+            if (!generateButton || !apiKeyInput || !previewFrame || !sidebar || !mainContent || !sidebarToggle || !toggleIconOpen || !toggleIconClose || !modelSelector) {
+                 console.error("Initialization Error: One or more critical elements not found!");
+                 document.body.innerHTML = '<p class="text-red-600 p-4">Initialization Error: Could not find required page elements. Please check the HTML structure.</p>';
+                 return;
+            }
+
+
+            // Attach event listeners
+            generateButton.addEventListener('click', () => generateOrRefineCode());
+            console.log("Event listener attached to Generate button.");
+
+            sidebarToggle.addEventListener('click', toggleSidebar);
+            console.log("Event listener attached to Sidebar toggle button.");
+
+            window.addEventListener('message', receiveMessageFromIframe, false);
+            console.log("Event listener attached for iframe messages.");
+
+            intervalSlider.addEventListener('input', (event) => {
+                previewUpdateInterval = parseInt(event.target.value, 10);
+                intervalValueDisplay.textContent = previewUpdateInterval;
+            });
+
+            // Initialize the view
+            previewUpdateInterval = parseInt(intervalSlider.value, 10);
+            intervalValueDisplay.textContent = previewUpdateInterval;
+            updateLivePreview(); // Initialize preview frame with placeholder
+            // Set initial sidebar state based on default 'isSidebarVisible'
+            if (!isSidebarVisible) {
+                 toggleSidebar(); // Hide it if default is hidden
+            } else {
+                 // Ensure correct classes are applied if starting visible
+                 sidebar.classList.add('w-full', 'md:w-1/2', 'lg:w-1/3', 'xl:w-1/4');
+                 mainContent.classList.add('w-full', 'md:w-1/2', 'lg:w-2/3', 'xl:w-3/4');
+                 toggleIconOpen.classList.add('hidden');
+                 toggleIconClose.classList.remove('hidden');
+            }
+
+
+            console.log("Initialization complete.");
+        });
+
+    </script>
+
+</body>
+</html>
